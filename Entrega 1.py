@@ -381,3 +381,11 @@ from utils import converter
 
 from utils import *
 # converter("Entrega 1")
+
+
+import shutil
+
+# py_file = converter("Entrega 1")              # devuelve 'Entrega 1.py'
+txt_file = py_file.replace(".py", ".txt")
+shutil.copy(py_file, txt_file)
+print(f"Archivo generado: {txt_file}")
