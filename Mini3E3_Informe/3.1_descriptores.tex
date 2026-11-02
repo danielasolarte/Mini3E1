@@ -1,0 +1,19 @@
+\section{Descriptores}
+\label{sec:Descriptores}
+
+Un descriptor resume una propiedad visual de la imagen en un vector de longitud fija que un clasificador puede comparar. Usamos tres descriptores unimodales, de color, textura y forma (Figura~\ref{fig:descriptores}), calculados sobre imágenes redimensionadas a un tamaño fijo, porque su tamaño original varía entre 121 y 800 píxeles por lado (Sección~\ref{sec:datos}).
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.95\linewidth]{descriptores.png}
+  \caption{Descriptores de una imagen de \textit{Canis latrans}. (a) Parches de los niveles 2 (continuas) y 3 (discontinuas) de la pirámide. (b) Color en pirámide en HSV (630 dimensiones). (c) Mapa de 25 textones. (d) Mapa HOG con celdas de $32\times32$.}
+  \label{fig:descriptores}
+\end{figure}
+
+\textbf{Color.} El histograma de color cuenta los píxeles que caen en cada intervalo (\textit{bin}) de intensidad. El concatenado une un histograma de $b$ bins por canal ($3b$ posiciones) y el conjunto cuenta las combinaciones de los tres canales ($b^3$ posiciones); ambos se normalizan para que sumen 1. Sus parámetros son el espacio de color, el número de bins y el tipo de histograma: más bins dan más detalle, pero el conjunto crece de forma cúbica y se vuelve disperso (1\,000 posiciones con $b=10$). Usamos HSV porque separa el tono (H) de la iluminación (V) y es menos sensible a la luz de cada fotografía.
+
+Como el histograma pierde la ubicación de los colores, usamos una pirámide espacial de tres niveles sobre imágenes de $256\times256$: la imagen completa, 4 parches de $128\times128$ y 16 de $64\times64$. Los histogramas concatenados de los 21 parches se unen en un vector de 630 dimensiones con 10 bins por canal. Más niveles agregan detalle espacial, pero también más dimensiones y histogramas con menos píxeles. El descriptor busca capturar la coloración del pelaje, como el vientre anaranjado de la ardilla zorro o la cara blanca de la zarigüeya, y su posición aproximada.
+
+\textbf{Textura.} La textura describe patrones locales que se repiten, como el pelo, el agua o el pasto. La imagen en gris se filtra con un banco de 18 filtros de $49\times49$ de distintas orientaciones y escalas, y cada píxel queda como un vector de 18 respuestas. Con los píxeles de 25 imágenes de entrenamiento se entrenó un K-means con $K=25$ textones, y cada imagen se describe con el histograma normalizado de sus textones. Los parámetros son el banco de filtros, el número de textones y las imágenes del diccionario. Al no depender del color, podría separar especies de tonos parecidos y pelaje distinto, como el castor y el mapache.
+
+\textbf{Forma.} El histograma de gradientes orientados (HOG) describe la forma a partir de los bordes. Divide la imagen en gris en celdas, calcula en cada una un histograma de las orientaciones del gradiente ponderado por su magnitud y normaliza bloques de celdas para reducir el efecto de la iluminación. Con 9 orientaciones, celdas de $32\times32$ y bloques de $2\times2$ celdas se obtienen 1\,764 dimensiones; con celdas de $16\times16$ serían 8\,100. Al calcularse por celdas, HOG conserva la información espacial sin necesidad de una pirámide y captura siluetas como la cola anillada del mapache o la cola aplanada del castor.

@@ -1,0 +1,63 @@
+\section{Descriptores: Resultados}
+\label{sec:2_Resultados}
+
+\textbf{Protocolo.} Los modelos se entrenaron con las 5\,163 imágenes de entrenamiento y se evaluaron con las 1\,723 de validación, salvo la textura, que por su costo se calculó en 150 y 50 imágenes. Reportamos precisión, cobertura y F1 con promedio macro, adecuado para clases desbalanceadas. Con color y HOG se entrenaron SVM con kernel lineal y RBF y $C\in\{1,10\}$.
+
+\begin{table}[t]
+  \centering
+  \small
+  \setlength{\tabcolsep}{4pt}
+  \caption{Mejor resultado de cada descriptor unimodal en validación (promedio macro). En negrilla, el mejor valor de cada métrica.}
+  \label{tab:unimodal}
+  \begin{tabular}{@{}llccc@{}}
+    \toprule
+    Descriptor & Clasificador & Prec. & Cob. & F1 \\
+    \midrule
+    Color (pirámide) & SVM RBF, $C=10$ & \textbf{0,630} & \textbf{0,588} & \textbf{0,602} \\
+    Textura          & K-NN, $k=5$     & 0,277 & 0,280 & 0,265 \\
+    Forma (HOG)      & SVM RBF, $C=10$ & 0,628 & 0,573 & 0,590 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\textbf{Comparación de descriptores.} Según la Tabla~\ref{tab:unimodal}, el mejor método fue el color en pirámide (HSV, 10 bins) con un SVM RBF y $C=10$, con una F1 de 0,602; este es nuestro \textit{baseline}. HOG quedó muy cerca (0,590) y la textura fue la más débil (0,265 con K-NN y 0,253 con SVM). Frente al histograma de color sin pirámide con K-NN de la entrega anterior (0,351), agregar información espacial y usar un SVM casi duplicó la F1.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.95\linewidth]{experimentos_svm.png}
+  \caption{F1 macro en validación de los ocho SVM. La línea discontinua marca el umbral de 0,55.}
+  \label{fig:svm}
+\end{figure}
+
+\textbf{Hiperparámetros.} En la Figura~\ref{fig:svm}, el kernel RBF con $C=10$ fue la mejor combinación para ambos descriptores y la única que superó el umbral de 0,55. El valor de $C$ pesó tanto como el kernel: con $C=1$, el RBF quedó por debajo del lineal con $C=10$, porque un $C$ bajo tolera muchos errores y, con clases tan traslapadas, el modelo queda subajustado. La peor combinación fue el color con kernel lineal y $C=1$ (0,287), cerca del azar (0,20). Un modelo más complejo no asegura un mejor desempeño: HOG tiene casi el triple de dimensiones que el color y rinde menos, la textura es la más costosa y la peor, y concatenar color y HOG (2\,394 dimensiones) dio 0,596, sin superar al color solo.
+
+\begin{table}[t]
+  \centering
+  \small
+  \caption{Métricas por clase del \textit{baseline} en validación. $n$ es el número de imágenes de cada clase.}
+  \label{tab:clase}
+  \begin{tabular}{@{}lrccc@{}}
+    \toprule
+    Clase & $n$ & Prec. & Cob. & F1 \\
+    \midrule
+    \textit{C. canadensis}       & 285 & 0,583 & 0,614 & 0,598 \\
+    \textit{D. virginiana}       & 238 & 0,560 & 0,471 & 0,511 \\
+    \textit{P. lotor}            & 429 & 0,636 & 0,639 & 0,637 \\
+    \textit{S. niger}            & 599 & 0,690 & 0,786 & \textbf{0,735} \\
+    \textit{U. cinereoargenteus} & 172 & 0,679 & 0,430 & 0,527 \\
+    \midrule
+    Promedio (macro)             & 1\,723 & 0,630 & 0,588 & 0,602 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.8\linewidth]{confusion_baseline.png}
+  \caption{Matriz de confusión del \textit{baseline} en validación (filas: clase predicha; columnas: clase real).}
+  \label{fig:confusion}
+\end{figure}
+
+\textbf{Resultados por clase.} La exactitud global del \textit{baseline} fue de 0,642 (Tabla~\ref{tab:clase} y Figura~\ref{fig:confusion}). \textit{S. niger}, la clase más grande, tuvo la mejor F1 (0,735), pero el modelo la predice en exceso: 212 de las 683 imágenes asignadas a ella eran de otras especies. Las clases pequeñas fueron las más afectadas. \textit{U. cinereoargenteus} tuvo la menor cobertura (0,430), con 36 imágenes confundidas con \textit{P. lotor}, también de pelaje gris, y \textit{D. virginiana} tuvo la menor F1 (0,511). En ambas la precisión supera a la cobertura: el modelo las predice poco, pero acierta cuando lo hace.
+
+\textbf{Resultados cualitativos.} En la Figura~\ref{fig:cualitativos} (Anexos, Sección~\ref{sec:anexos}), algunos aciertos ocurren con el animal muy pequeño o en fotografías nocturnas en gris, lo que sugiere que el descriptor se apoya tanto en el fondo como en el animal. Los errores reflejan las dificultades de la base de datos (Sección~\ref{sec:datos}): un cráneo sin pelaje, una zarigüeya casi oculta en la vegetación y un zorro atropellado de noche. Otros muestran el sesgo hacia el fondo, como el castor en agua oscura y la ardilla sobre el pasto.
