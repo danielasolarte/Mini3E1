@@ -1,0 +1,42 @@
+\subsection{Método final}
+\label{sec:Resultados_metodo_final}
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=0.95\linewidth]{overview.png}
+  \caption{Overview del modelo final. La imagen se redimensiona a $256\times256$ y se extraen tres descriptores: el histograma de color en pirámide en HSV (630 dimensiones), HOG en escala de grises (1\,764) y el histograma de 25 textones (25). Cada bloque se estandariza con las estadísticas de entrenamiento y se divide por $\sqrt{d}$, y el vector de 2\,419 dimensiones se clasifica con un SVM RBF con $C=10$.}
+  \label{fig:overview}
+\end{figure*}
+
+\textbf{Descripción.} La Figura~\ref{fig:overview} resume el modelo final. Recibe una imagen, la redimensiona a $256\times256$ y extrae en paralelo los tres descriptores. El de color es el histograma concatenado en pirámide de tres niveles en HSV, con 10 bins por canal. El de forma es HOG con 9 orientaciones, celdas de $32\times32$ y bloques de $2\times2$ celdas. El de textura es el histograma de 25 textones, obtenidos con K-means sobre las respuestas a 18 filtros de $49\times49$. Cada bloque se estandariza y se divide por la raíz de su dimensión, y el vector concatenado se clasifica con un SVM con kernel RBF, $C=10$ y $\gamma$ automático. El modelo se entrenó solo con el conjunto de entrenamiento, los hiperparámetros se escogieron en validación y el conjunto de prueba se evaluó una sola vez con la función \texttt{Demo}.
+
+\begin{table}[t]
+  \centering
+  \small
+  \caption{Métricas del modelo final en el conjunto de prueba. $n$ es el número de imágenes de cada clase.}
+  \label{tab:test}
+  \begin{tabular}{@{}lrccc@{}}
+    \toprule
+    Clase & $n$ & Prec. & Cob. & F1 \\
+    \midrule
+    \textit{C. canadensis}       & 285 & 0,668 & 0,607 & 0,636 \\
+    \textit{D. virginiana}       & 238 & 0,714 & 0,483 & 0,576 \\
+    \textit{P. lotor}            & 429 & 0,629 & 0,688 & 0,657 \\
+    \textit{S. niger}            & 599 & 0,685 & 0,835 & \textbf{0,752} \\
+    \textit{U. cinereoargenteus} & 173 & 0,695 & 0,422 & 0,525 \\
+    \midrule
+    Promedio (macro)             & 1\,724 & 0,678 & 0,607 & 0,629 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\textbf{Evaluación en prueba.} La Tabla~\ref{tab:test} presenta las métricas en el conjunto de prueba. El modelo alcanzó una precisión de 0,678, una cobertura de 0,607 y una F1 de 0,629 (exactitud de 0,671), muy cerca de su F1 en validación (0,635), lo que indica que generaliza bien a imágenes nuevas. El orden de las clases se mantiene: \textit{S. niger} es la mejor clasificada (F1 de 0,752) y \textit{U. cinereoargenteus} la peor (0,525). En todas las clases menos dos, la precisión supera a la cobertura, y la diferencia es mayor en las clases pequeñas: \textit{D. virginiana} tiene una precisión de 0,714 pero una cobertura de 0,483. El modelo sigue prediciendo en exceso la clase mayoritaria: de las 720 imágenes que asignó a \textit{S. niger}, 230 pertenecían a otras especies.
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=0.9\linewidth]{errores_test.png}
+  \caption{Ejemplos de imágenes de prueba mal clasificadas por el modelo final, una por especie (título: clase real; abajo: clase predicha), elegidas al azar con la semilla 19.}
+  \label{fig:errores_test}
+\end{figure*}
+
+\textbf{Errores.} La Figura~\ref{fig:errores_test} muestra un error por especie. Varios corresponden a imágenes donde el animal no es visible o es muy pequeño: una huella de castor junto a una cinta métrica, cuatro mapaches diminutos sobre un camino de tierra y un zorro gris borroso en movimiento. En otros, el fondo domina el descriptor, como la zarigüeya a la sombra de un arbusto y la ardilla zorro sobre un suelo de astillas de madera, que se confundió con un castor.

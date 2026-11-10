@@ -1,0 +1,32 @@
+\subsection{Multi-descriptor}
+\label{sec:Resultados_multidescriptor}
+
+\textbf{Novedad propuesta.} En la entrega anterior, concatenar color y HOG no superó al color solo (0,596 frente a 0,602). HOG aporta 1\,764 de las 2\,394 dimensiones y sus valores tienen otra escala, así que domina la distancia del kernel RBF. Proponemos una concatenación con bloques balanceados: cada descriptor se estandariza con la media y la desviación estándar del conjunto de entrenamiento y luego se divide por $\sqrt{d}$, donde $d$ es su dimensión. Así, cada bloque aporta en promedio lo mismo a la distancia euclidiana, sin importar si tiene 25 o 1\,764 dimensiones. La textura se recalculó para todas las imágenes con el diccionario de 25 textones, usando \texttt{cv2.filter2D}, que da la misma correlación que \texttt{correlate2d} en mucho menos tiempo.
+
+\begin{table}[t]
+  \centering
+  \small
+  \setlength{\tabcolsep}{4pt}
+  \caption{Combinaciones de descriptores con SVM RBF y $C=10$ en validación (promedio macro). Las dos primeras filas son de la entrega anterior, sin estandarizar; las demás usan bloques balanceados. En negrilla, el mejor valor de cada métrica.}
+  \label{tab:multi}
+  \begin{tabular}{@{}lrccc@{}}
+    \toprule
+    Descriptor & Dim. & Prec. & Cob. & F1 \\
+    \midrule
+    Color (\textit{baseline})       &    630 & 0,630 & 0,588 & 0,602 \\
+    Color + forma (simple)          & 2\,394 & 0,624 & 0,585 & 0,596 \\
+    \midrule
+    Color                           &    630 & 0,646 & 0,593 & 0,609 \\
+    Color + forma                   & 2\,394 & 0,675 & 0,590 & 0,613 \\
+    Color + textura                 &    655 & 0,649 & 0,602 & 0,616 \\
+    Forma + textura                 & 1\,789 & 0,628 & 0,583 & 0,599 \\
+    Color + forma + textura         & 2\,419 & \textbf{0,681} & \textbf{0,615} & \textbf{0,635} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\textbf{Combinaciones.} La Tabla~\ref{tab:multi} resume los experimentos con el clasificador del \textit{baseline}. La mejor combinación fue color, forma y textura, con una F1 de 0,635, 3,3 puntos por encima del \textit{baseline} y con la mejor precisión y cobertura. Todas las combinaciones que incluyen color superaron al \textit{baseline}. Solo estandarizar el color ya sube la F1 a 0,609, y balancear los bloques hace que color y forma pasen de 0,596 a 0,613. El único experimento que no mejoró el \textit{baseline} fue forma y textura (0,599), que no usa color.
+
+\textbf{Longitud del descriptor.} No hay una relación directa entre la dimensión y el desempeño. Color y textura, con 655 dimensiones, superó a color y forma, con 2\,394. La textura agrega solo 25 dimensiones, pero sube la F1 del color en 0,7 puntos y la de color y forma en 2,2 puntos, porque con los bloques balanceados pesa lo mismo que los otros descriptores.
+
+\textbf{Resultados por clase.} Con el modelo final, \textit{Sciurus niger} fue la clase mejor clasificada en validación (F1 de 0,769 y cobertura de 0,846), seguida de \textit{P. lotor} (0,664) y \textit{C. canadensis} (0,656). \textit{U. cinereoargenteus} siguió siendo la más difícil (F1 de 0,522), con una cobertura de solo 0,407.

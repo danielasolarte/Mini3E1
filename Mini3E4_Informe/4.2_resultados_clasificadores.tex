@@ -1,0 +1,47 @@
+\subsection{Clasificadores}
+\label{sec:Resultados_clasificadores}
+
+\textbf{Modelo de expertos.} Primero entrenamos un clasificador por descriptor (color en pirámide y HOG) y combinamos sus decisiones promediando las probabilidades de cada clase. La Tabla~\ref{tab:expertos} muestra los resultados. Con SVM, la votación (0,618) superó a cada experto por separado y al \textit{baseline}, aunque quedó por debajo del descriptor con bloques balanceados. Con Random Forest y MLP, los expertos quedaron cerca del \textit{baseline}. El experto más débil fue el MLP de forma (0,529), que además no convergió en 500 iteraciones. Al combinar el mejor experto de color (MLP) con el mejor de forma (Random Forest) se obtuvo 0,612.
+
+\begin{table}[t]
+  \centering
+  \small
+  \caption{F1 macro en validación del modelo de expertos. Cada experto usa un solo descriptor y la votación promedia sus probabilidades.}
+  \label{tab:expertos}
+  \begin{tabular}{@{}lccc@{}}
+    \toprule
+    Clasificador & Color & Forma & Votación \\
+    \midrule
+    SVM RBF, $C=10$          & 0,593 & 0,590 & \textbf{0,618} \\
+    RF, 300 árboles          & 0,589 & 0,589 & 0,599 \\
+    MLP, 256 neuronas        & 0,610 & 0,529 & 0,606 \\
+    MLP (color) + RF (forma) & --    & --    & 0,612 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{table}[t]
+  \centering
+  \small
+  \caption{Clasificadores sobre el descriptor de color, forma y textura con bloques balanceados, en validación (promedio macro). En negrilla, el mejor valor de cada métrica.}
+  \label{tab:clasif}
+  \begin{tabular}{@{}lccc@{}}
+    \toprule
+    Clasificador & Prec. & Cob. & F1 \\
+    \midrule
+    SVM RBF, $C=1$                    & 0,629 & 0,481 & 0,495 \\
+    SVM RBF, $C=10$                   & 0,681 & \textbf{0,615} & \textbf{0,635} \\
+    SVM RBF, $C=10$, balanceado       & 0,681 & \textbf{0,615} & \textbf{0,635} \\
+    SVM RBF, $C=30$, balanceado       & 0,681 & 0,614 & 0,634 \\
+    SVM lineal, $C=0{,}1$, balanceado & 0,409 & 0,419 & 0,402 \\
+    RF, 300 árboles                   & 0,818 & 0,545 & 0,595 \\
+    RF, 500 árboles, prof. 20         & \textbf{0,828} & 0,553 & 0,603 \\
+    MLP (256), $\alpha=10^{-4}$       & 0,592 & 0,562 & 0,570 \\
+    MLP (256), $\alpha=0{,}1$         & 0,621 & 0,584 & 0,595 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\textbf{Clasificadores sobre el descriptor final.} La Tabla~\ref{tab:clasif} compara nueve configuraciones sobre el mejor descriptor. El mejor método fue el SVM con kernel RBF y $C=10$ (F1 de 0,635), que es nuestro modelo final. El parámetro que más influyó fue $C$: con $C=1$ el modelo queda subajustado y la F1 cae a 0,495, mientras que de $C=10$ a $C=30$ casi no cambia, así que el desempeño se satura. Usar pesos por clase (\texttt{class\_weight="balanced"}) no tuvo efecto. La combinación que peor funcionó fue el SVM lineal (0,402), lo que indica que las clases no son linealmente separables en este espacio.
+
+Se observa una tendencia clara entre clasificadores. Random Forest alcanzó la mayor precisión (0,818 y 0,828), pero con la cobertura más baja (cerca de 0,55), porque tiende a predecir las clases grandes y deja sin reconocer muchas imágenes de las pequeñas; su F1 quedó en el nivel del \textit{baseline} (0,595 y 0,603). Los MLP quedaron por debajo del \textit{baseline} (0,570 y 0,595), aunque la regularización con $\alpha=0{,}1$ los mejoró en 2,5 puntos. Solo el SVM con kernel RBF y $C\geq10$ superó claramente al \textit{baseline}, por lo que fue el clasificador que mejor funcionó.
