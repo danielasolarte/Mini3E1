@@ -1,0 +1,687 @@
+# importar librerias
+import os
+import random
+import numpy as np
+from glob import glob
+from tqdm import tqdm
+
+from matplotlib import pyplot as plt
+
+import cv2
+from skimage.feature import hog
+
+from sklearn.svm import SVC
+from sklearn.neural_network import MLPClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import f1_score
+
+
+# ----------------------------------------
+
+group = None # Cambiar por el número de grupo
+# YOUR CODE HERE (Daniela)
+group = 19 # Número de grupo asignado (el mismo de las entregas anteriores)
+
+# ----------------------------------------
+
+def determine_classes(group: int) -> list:
+    """Función que determina las clases a utilizar en el proyecto.
+
+    Args:
+        group (int): Número de grupo.
+
+    Returns:
+        list: Lista con los nombres de las clases a utilizar.
+    """
+    # Se fija la semilla para reproducibilidad
+    random.seed(group)
+    
+    # Se obtienen las categorías y la cantidad de imágenes por categoría
+    stats = [('Canis latrans', 1286), ('Castor canadensis', 854), ('Dasypus novemcinctus', 515), ('Didelphis virginiana', 713), 
+             ('Lepus californicus', 515), ('Lynx rufus', 854), ('Megaptera novaeangliae', 515), ('Mephitis mephitis', 515), 
+             ('Odocoileus hemionus', 1286), ('Odocoileus virginianus', 1795), ('Otospermophilus beecheyi', 854), 
+             ('Otospermophilus variegatus', 515), ('Phoca vitulina', 713), ('Procyon lotor', 1286), ('Sciurus carolinensis', 1795), 
+             ('Sciurus niger', 1795), ('Sylvilagus audubonii', 515), ('Sylvilagus floridanus', 854), ('Tamias striatus', 854), 
+             ('Tamiasciurus hudsonicus', 713), ('Urocyon cinereoargenteus', 515), ('Ursus americanus', 713), ('Vulpes vulpes', 854)]
+    
+    # Se agrupan las categorías por cantidad de imágenes
+    clusters = {}
+    for category, num_images in stats:
+        if num_images in clusters:
+            clusters[num_images].append(category)
+        else:
+            clusters[num_images] = [category]
+    
+    # Se selecciona una categoría aleatoria de cada cluster
+    categories = []
+    for cluster_categories in clusters.values():
+        categories += [random.choice(cluster_categories)]
+    return categories
+
+assert group is not None, "Por favor, asigna un número de grupo a la variable 'group'."
+assert group > 0, "El número de grupo debe ser mayor que 0."
+assert group <= 28, "El número de grupo debe ser menor o igual que 28."
+
+categories = determine_classes(group)
+print(f"Las classes que usarán en este Mini-proyecto serán:\n{", ".join(categories)}.")
+
+# ----------------------------------------
+
+dict_labels = {} # Cambiar por un diccionario con las etiquetas de las clases 
+
+# YOUR CODE HERE (Daniela)
+# Carpeta con los datos (train, valid y test), al mismo nivel que este notebook
+DATA_DIR = "dataset"
+
+# Se ordenan las clases alfabéticamente y se les asigna un ID empezando en 0
+dict_labels = {name: i for i, name in enumerate(sorted(categories))}
+
+def get_data(subset: str) -> tuple[list, list]:
+  """Función que obtiene las rutas de las imágenes y sus etiquetas.
+
+  Args:
+      subset (str): Nombre del subconjunto de datos a utilizar.
+
+  Returns:
+      tuple[list, list]: Rutas de las imágenes y sus etiquetas.
+  """
+  paths = []
+  labels = []
+  
+  # YOUR CODE HERE (Daniela)
+  # Solo se recorren las clases asignadas al grupo
+  for name, idx in dict_labels.items():
+      # Rutas de todas las imágenes de esta clase en el subset
+      class_paths = sorted(glob(os.path.join(DATA_DIR, subset, name, "*")))
+      paths += class_paths
+      # Cada imagen recibe el ID de su clase
+      labels += [idx] * len(class_paths)
+  return paths, labels
+
+train_paths, train_labels = get_data("train")
+valid_paths, valid_labels = get_data("valid")
+test_paths, test_labels = get_data("test")
+
+# ----------------------------------------
+
+assert len(train_paths) > 0, "No se ha cargado ningún dato de entrenamiento"
+assert len(train_paths) == 5163, "El número de datos de entrenamiento no es correcto"
+assert len(valid_paths) > 0, "No se ha cargado ningún dato de validación"
+assert len(valid_paths) == 1723, "El número de datos de validación no es correcto"
+assert len(test_paths) > 0, "No se ha cargado ningún dato de test"
+assert len(test_paths) == 1724, "El número de datos de test no es correcto"
+
+assert type(train_paths[0]) == str, "Los datos de entrenamiento no tienen la forma correcta"
+assert type(valid_paths[0]) == str, "Los datos de validación no tienen la forma correcta"
+assert type(test_paths[0]) == str, "Los datos de test no tienen la forma correcta"
+
+assert type(train_labels[0]) == int, "Las etiquetas de entrenamiento no tienen la forma correcta"
+assert type(valid_labels[0]) == int, "Las etiquetas de validación no tienen la forma correcta"
+assert type(test_labels[0]) == int, "Las etiquetas de test no tienen la forma correcta"
+
+assert len(dict_labels) == len(categories), "El diccionario de labels no tiene la longitud correcta"
+
+categories_sorted = sorted(categories)
+assert list(dict_labels.keys()) == categories_sorted, "Las llaves del diccionario de labels no son correctas"
+assert list(dict_labels.values()) == list(range(len(categories))), "Los valores del diccionario de labels no son correctos"
+
+assert min([dict_labels[train_paths[i].split(os.sep)[-2]] == train_labels[i] for i in range(len(train_paths))]), "Las etiquetas de entrenamiento no coinciden"
+assert min([dict_labels[valid_paths[i].split(os.sep)[-2]] == valid_labels[i] for i in range(len(valid_paths))]), "Las etiquetas de validación no coinciden"
+assert min([dict_labels[test_paths[i].split(os.sep)[-2]] == test_labels[i] for i in range(len(test_paths))]), "Las etiquetas de test no coinciden"
+
+# ----------------------------------------
+
+def processing(Im: np.ndarray, img_size: tuple[int] | None = None, color_space: str | None = None) -> np.ndarray:
+    """Función que preprocesa una lista de imágenes.
+
+    Args:
+        Im_list (list[np.ndarray]): Lista con las imágenes a preprocesar.
+        img_size (tuple[int] | None): Tamaño de la imagen.
+        color_space (str | None): Espacio de color a utilizar. Puede ser "rgb", "gray", "hsv" o "lab".
+
+    Returns:
+        list[np.ndarray]: Lista con las imágenes preprocesadas.
+    """
+    
+    # YOUR CODE HERE (Daniela)
+    # Redimensionar solo si se da un tamaño
+    if img_size is not None:
+        Im = cv2.resize(Im, img_size)
+
+    # Convertir de BGR al espacio de color pedido (si se da uno)
+    if color_space is not None:
+        conversions = {
+            "rgb": cv2.COLOR_BGR2RGB,
+            "gray": cv2.COLOR_BGR2GRAY,
+            "hsv": cv2.COLOR_BGR2HSV,
+            "lab": cv2.COLOR_BGR2LAB,
+        }
+        Im = cv2.cvtColor(Im, conversions[color_space])
+    
+    return Im
+
+# ----------------------------------------
+
+Im_list = [cv2.imread(path) for path in train_paths[:5]]
+img_size = (224, 224)
+color_space = "rgb"
+Im_proc = [processing(Im, img_size, color_space) for Im in Im_list]
+
+assert len(Im_proc) == len(Im_list), "El número de imágenes preprocesadas no es correcto"
+assert type(Im_proc) == list, "Las imágenes preprocesadas no están en una lista"
+assert type(Im_proc[0]) == np.ndarray, "Las imágenes preprocesadas no son arreglos de numpy"
+assert np.array(Im_proc).shape[1:] == (224, 224, 3), "Las imágenes preprocesadas no tienen el tamaño correcto"
+assert np.array_equal(cv2.cvtColor(cv2.resize(Im_list[0], (224, 224)), cv2.COLOR_BGR2RGB), Im_proc[0]), "Las imágenes preprocesadas no son correctas"
+
+color_space = "gray"
+Im_proc = [processing(Im, img_size, color_space) for Im in Im_list]
+assert np.array(Im_proc).shape[1:] == (224, 224), "Las imágenes preprocesadas no tienen el tamaño correcto"
+assert np.array_equal(cv2.cvtColor(cv2.resize(Im_list[0], (224, 224)), cv2.COLOR_BGR2GRAY), Im_proc[0]), "Las imágenes preprocesadas no son correctas"
+
+color_space = "hsv"
+Im_proc = [processing(Im, img_size, color_space) for Im in Im_list]
+assert np.array(Im_proc).shape[1:] == (224, 224, 3), "Las imágenes preprocesadas no tienen el tamaño correcto"
+assert np.array_equal(cv2.cvtColor(cv2.resize(Im_list[0], (224, 224)), cv2.COLOR_BGR2HSV), Im_proc[0]), "Las imágenes preprocesadas no son correctas"
+
+color_space = "lab"
+Im_proc = [processing(Im, img_size, color_space) for Im in Im_list]
+assert np.array(Im_proc).shape[1:] == (224, 224, 3), "Las imágenes preprocesadas no tienen el tamaño correcto"
+assert np.array_equal(cv2.cvtColor(cv2.resize(Im_list[0], (224, 224)), cv2.COLOR_BGR2LAB), Im_proc[0]), "Las imágenes preprocesadas no son correctas"
+
+Im_proc = [processing(Im, (256, 256)) for Im in Im_list]
+assert np.array(Im_proc).shape[1:] == (256, 256, 3), "Las imágenes preprocesadas no tienen el tamaño correcto"
+assert np.array_equal(cv2.resize(Im_list[0], (256, 256)), Im_proc[0]), "Las imágenes preprocesadas no son correctas"
+
+Im_proc = [processing(Im, None, "lab") for Im in Im_list]
+assert np.array_equal(cv2.cvtColor(Im_list[0], cv2.COLOR_BGR2LAB), Im_proc[0]), "Las imágenes preprocesadas no son correctas"
+
+# ----------------------------------------
+
+def color_hist(Im: np.ndarray, type_h:str, bins: int) -> np.ndarray:
+    """Función que calcula el histograma de color conjunto o concatenado de una imagen
+
+    Args:
+        Im (numpy.ndarray): Imagen a la que calcular el histograma
+        type_h (str): Tipo de histograma a calcular, puede ser "concat" o "joint"
+        bins (int): Cantidad de bins que usar en el histograma. En el caso de concat el número de bins finale será 3*bins
+        En el caso de Joint será bins^3
+        
+    Returns:
+        numpy.ndarray: Histograma de color normalizado
+    """
+    # YOUR CODE HERE (Daniela)
+    # Misma función de las entregas anteriores: el rango de los bins va del mínimo al máximo de cada canal
+    if type_h == "concat":
+        # Un histograma por canal, uno detrás del otro
+        h = np.concatenate([np.histogram(Im[:, :, c], bins=bins)[0] for c in range(3)])
+    elif type_h == "joint":
+        # Histograma 3D con las combinaciones de los 3 canales, aplanado
+        h = np.histogramdd(Im.reshape(-1, 3), bins=bins)[0].flatten()
+
+    # Se normaliza para que sume 1
+    h = h / np.sum(h)
+    return h
+
+def Color_pyramid(Im: np.ndarray, patch_sizes: list[tuple[int]], type_h: str, bins:int) -> np.ndarray:
+    """Función que calcula el histograma de color de una imagen por parches
+
+    Args:
+        Im (numpy.ndarray): Imagen de entrada
+        patch_sizes (list[tuple[int]]): Tupla tamaño de los parches sobre el que calcular cada histograma
+        type_h (str): Puede ser "concat" o "joint"
+        bins (int): Cantidad de bins que usar en el histograma
+
+    Returns:
+        numpy.ndarray: Histograma de color normalizado
+    """
+    # YOUR CODE HERE (Daniela)
+    hists = []
+    # Cada nivel de la pirámide con su tamaño de parche
+    for (ph, pw) in patch_sizes:
+        # Parches de izquierda a derecha y de arriba a abajo
+        for y in range(0, Im.shape[0], ph):
+            for x in range(0, Im.shape[1], pw):
+                hists.append(color_hist(Im[y:y + ph, x:x + pw], type_h, bins))
+
+    # Se concatenan todos los histogramas (no queda normalizado)
+    final_histogram = np.concatenate(hists)
+    return final_histogram
+
+# ----------------------------------------
+
+img=processing(cv2.imread(os.path.join(".", "dataset", "train", "Canis latrans", "f494fab00ebb2d87c8d3bf5215560d54.jpg")),  (256, 256), 'rgb')
+h_pyramid_cat=Color_pyramid(img,[(256, 256), (128, 128), (64, 64)],'concat',10)
+h_pyramid_joint=Color_pyramid(img,[(256, 256), (128, 128), (64, 64)],'joint',5)
+
+fig,ax=plt.subplots(2,2,figsize=(10,10))
+ax[0,0].imshow(img)
+ax[0,0].axis('off')
+ax[0,0].set_title('Imagen')
+ax[0,1].hist(list(range(len(h_pyramid_cat))), list(range(len(h_pyramid_cat - 1))), weights = h_pyramid_cat)
+ax[0,1].set_title('Histograma de piramide')
+
+assert len(h_pyramid_cat)==30*(1+4+16), 'La longitud del descriptor final debe ser igual a la longitud del histograma concatenado multiplicado por la cantidad de cuadrantes dentro de la imagen'
+assert np.isclose(np.sum(h_pyramid_cat),(1+4+16),0.01), 'En total se tienen 64 histogramas normalizados juntos, la suma de todo debe ser 64'
+assert len(h_pyramid_joint)==5**3*(1+4+16), 'La longitud del descriptor final debe ser igual a la longitud del histograma conjunto multiplicado por la cantidad de cuadrantes dentro de la imagen'
+assert np.isclose(np.sum(h_pyramid_joint),(1+4+16),0.01), 'En total se tienen 64 histogramas normalizados juntos, la suma de todo debe ser 64'
+a=color_hist(img[64:64+64,64:64+64,:],'concat',10)
+K=10
+b=h_pyramid_cat[K*30:K*30+30]
+
+ax[1,0].imshow(img[64:64+64,64:64+64,:])
+ax[1,0].axis('off')
+ax[1,0].set_title('Recorte')
+ax[1,1].hist(list(range(len(h_pyramid_cat[K*30:K*30+30]))), list(range(len(h_pyramid_cat[K*30:K*30+30] - 1))), weights = h_pyramid_cat[K*30:K*30+30])
+ax[1,1].set_title('Histograma de recorte')
+
+assert np.array_equal(a,b), 'El histograma concatenado de el cuadrante 17 de la imagen debe ser igual la parte 17 del histograma en piramide'
+
+# ----------------------------------------
+
+# YOUR CODE HERE (Daniela)
+# Mismos parámetros que en la entrega 3
+img_size = (256, 256)                                # Tamaño estándar de las imágenes
+patch_sizes = [(256, 256), (128, 128), (64, 64)]     # Pirámide de 3 niveles (1 + 4 + 16 parches)
+color_space = "hsv"                                  # Espacio de color del baseline
+bins = 10                                            # 10 bins por canal -> 30 * 21 = 630 dimensiones
+hog_params = dict(orientations=9, pixels_per_cell=(32, 32), cells_per_block=(2, 2))  # -> 1764 dimensiones
+
+def color_descriptor(Im):
+    """Histograma concatenado de color en pirámide (HSV)."""
+    return Color_pyramid(processing(Im, img_size, color_space), patch_sizes, "concat", bins)
+
+def shape_descriptor(Im):
+    """Descriptor de forma HOG sobre la imagen en gris."""
+    return hog(processing(Im, img_size, "gray"), **hog_params)
+
+# Se usan todas las imágenes de entrenamiento
+train_images_num = len(train_paths)
+
+color_des_train, shape_des_train = [], []
+for path in tqdm(train_paths[:train_images_num], desc="Train"):
+    Im = cv2.imread(path)
+    color_des_train.append(color_descriptor(Im))
+    shape_des_train.append(shape_descriptor(Im))
+
+color_des_valid, shape_des_valid = [], []
+for path in tqdm(valid_paths, desc="Valid"):
+    Im = cv2.imread(path)
+    color_des_valid.append(color_descriptor(Im))
+    shape_des_valid.append(shape_descriptor(Im))
+
+# Se pasan a arreglos para entrenar más cómodo
+color_des_train, shape_des_train = np.array(color_des_train), np.array(shape_des_train)
+color_des_valid, shape_des_valid = np.array(color_des_valid), np.array(shape_des_valid)
+
+# ----------------------------------------
+
+assert len(train_labels) == train_images_num, 'La cantidad de etiquetas que tiene debe ser igual a la cantidad de imagenes que usted especificó'
+assert len(shape_des_train) == len(color_des_train) and len(shape_des_valid) == len(color_des_valid), 'Usted debe tener la misma cantidad de descriptores en todas las listas'
+assert len(shape_des_train[0]) > 1, 'El descriptor debe tener más de una dimensión'
+assert len(color_des_train[0]) > 1, 'El descriptor debe tener más de una dimensión'
+assert len(color_des_train[0]) <= 7056, 'Su descriptor unimodal de color tiene demasiadas dimensiones'
+assert len(shape_des_train[0]) <= 7056, 'Su descriptor unimodal de forma tiene demasiadas dimensiones'
+assert len(np.unique(train_labels)) == 5, 'Solo deben haber 5 etiquetas'
+assert len(np.unique(valid_labels)) == 5, 'Solo deben haber 5 etiquetas'
+
+assert len(valid_labels) == 1723, 'Usted debe sacar el descriptor de todas las imagenes de validación'
+assert len(color_des_train[0]) == len(color_des_valid[0]), 'El descriptor en train y valid debe ser igual'
+assert len(shape_des_train[0]) == len(shape_des_valid[0]), 'El descriptor en train y valid debe ser igual'
+
+print(f"Las dimensiones de su descriptor de color son {np.array(color_des_train).shape[1]}")
+print(f"Las dimensiones de su descriptor de forma son {np.array(shape_des_train).shape[1]}")
+
+# ----------------------------------------
+
+svm_color='' #modelo SVM entrenado con color
+svm_shape='' #modelo SVM entrenado con forma
+
+# YOUR CODE HERE (Daniela)
+# Un experto por descriptor, con los hiperparámetros del baseline (RBF, C = 10)
+# probability=True permite usar predict_proba para la votación
+svm_color = SVC(kernel="rbf", C=10, probability=True, random_state=0).fit(color_des_train, train_labels)
+svm_shape = SVC(kernel="rbf", C=10, probability=True, random_state=0).fit(shape_des_train, train_labels)
+
+# ----------------------------------------
+
+proba_color_valid=[] #lista de probabilidades de todas las imagenes de validación en color
+proba_shape_valid=[] #lista de probabilidades de todas las imagenes de validación en forma
+
+# YOUR CODE HERE (Daniela)
+# Probabilidad de cada clase para cada imagen de validación (filas = imágenes, columnas = clases)
+proba_color_valid = svm_color.predict_proba(color_des_valid)
+proba_shape_valid = svm_shape.predict_proba(shape_des_valid)
+
+# ----------------------------------------
+
+assert len(proba_color_valid)==1723, 'Debería tener 1723 datos de predicción'
+assert len(proba_shape_valid)==1723, 'Debería tener 1723 datos de predicción'
+assert np.isclose(np.mean(np.sum(proba_color_valid,axis=1)),1), 'La suma de las probabilidades debe ser 1'
+assert svm_color.n_features_in_==len(color_des_train[0]), 'Usted entrenó el modelo de color con un descriptor diferente al de color'
+assert svm_shape.n_features_in_==len(shape_des_train[0]), 'Usted entrenó el modelo de forma con un descriptor diferente al de forma'
+assert not np.array_equal(proba_color_valid,proba_shape_valid), 'Sus probabilidades no son diferentes'
+assert np.array_equal(proba_color_valid[0],svm_color.predict_proba([color_des_valid[0]])[0]), 'Las probabilidades de color estan mal calculadas'
+
+# ----------------------------------------
+
+final_predict=[] #predicción final por expertos
+color_predict=[] #predicción final por color
+shape_predict=[] #predicción final por forma
+# YOUR CODE HERE (Daniela)
+# Las columnas de predict_proba siguen el orden de classes_ (0 a 4), así que argmax da la etiqueta
+color_predict = np.argmax(proba_color_valid, axis=1)
+shape_predict = np.argmax(proba_shape_valid, axis=1)
+
+# Votación de expertos: promedio de las probabilidades y se queda la clase más probable
+final_predict = np.argmax((proba_color_valid + proba_shape_valid) / 2, axis=1)
+
+# ----------------------------------------
+
+color_p=proba_color_valid[0]
+shape_p=proba_shape_valid[0]
+
+assert np.isclose(((color_p+shape_p)/2)[final_predict[0]],np.max(((color_p+shape_p)/2))), 'La probabilidad maxima no fue seleccionada como la etiqueta de predicción final'
+
+# ----------------------------------------
+
+f_color=f1_score(valid_labels,color_predict,average='macro')
+f_shape=f1_score(valid_labels,shape_predict,average='macro')
+f_final=f1_score(valid_labels,final_predict,average='macro')
+
+print(f'color: {f_color}')
+print(f'forma: {f_shape}')
+print(f'final: {f_final}')
+
+# ----------------------------------------
+
+assert f_color<0.8, 'Usted esta validando con los mismos datos que entrenó'
+assert f_shape<0.8, 'Usted esta validando con los mismos datos que entrenó'
+assert f_final<0.8, 'Usted esta validando con los mismos datos que entrenó'
+
+# ----------------------------------------
+
+RF_color='' #modelo RF entrenado con color
+RF_shape='' #modelo RF entrenado con forma
+
+MLP_color='' #modelo MLP entrenado con color
+MLP_shape='' #modelo MLP entrenado con forma
+
+# YOUR CODE HERE (Daniela)
+# Random Forest: 300 árboles, semilla fija para que sea reproducible
+RF_color = RandomForestClassifier(n_estimators=300, random_state=0, n_jobs=-1).fit(color_des_train, train_labels)
+RF_shape = RandomForestClassifier(n_estimators=300, random_state=0, n_jobs=-1).fit(shape_des_train, train_labels)
+
+# MLP: una capa oculta de 256 neuronas; se suben las iteraciones para que converja
+MLP_color = MLPClassifier(hidden_layer_sizes=(256,), max_iter=500, random_state=0).fit(color_des_train, train_labels)
+MLP_shape = MLPClassifier(hidden_layer_sizes=(256,), max_iter=500, random_state=0).fit(shape_des_train, train_labels)
+
+# ----------------------------------------
+
+proba_color_valid_RF='' #lista de probabilidades de color en validación Random Forest
+proba_shape_valid_RF='' #lista de probabilidades de forma en validación Random Forest
+
+proba_color_valid_MLP='' #lista de probabilidades de color en validación MLP
+proba_shape_valid_MLP='' #lista de probabilidades de forma en validación MLP
+
+# YOUR CODE HERE (Daniela)
+proba_color_valid_RF = RF_color.predict_proba(color_des_valid)
+proba_shape_valid_RF = RF_shape.predict_proba(shape_des_valid)
+
+proba_color_valid_MLP = MLP_color.predict_proba(color_des_valid)
+proba_shape_valid_MLP = MLP_shape.predict_proba(shape_des_valid)
+
+# ----------------------------------------
+
+assert len(proba_color_valid_RF)==1723, 'Debería tener 500 datos de predicción'
+assert len(proba_shape_valid_RF)==1723, 'Debería tener 500 datos de predicción'
+assert len(proba_color_valid_MLP)==1723, 'Debería tener 500 datos de predicción'
+assert len(proba_shape_valid_MLP)==1723, 'Debería tener 500 datos de predicción'
+assert np.isclose(np.mean(np.sum(proba_color_valid_RF,axis=1)),1), 'La suma de las probabilidades debe ser 1'
+assert np.isclose(np.mean(np.sum(proba_color_valid_MLP,axis=1)),1), 'La suma de las probabilidades debe ser 1'
+assert RF_color.n_features_in_==len(color_des_train[0]), 'Usted entrenó el modelo de color con un descriptor diferente al de color'
+assert MLP_shape.n_features_in_==len(shape_des_train[0]), 'Usted entrenó el modelo de forma con un descriptor diferente al de forma'
+assert not np.array_equal(proba_color_valid_RF,proba_shape_valid_RF), 'Sus probabilidades no son diferentes'
+assert not np.array_equal(proba_color_valid_MLP,proba_shape_valid_MLP), 'Sus probabilidades no son diferentes'
+assert np.array_equal(proba_color_valid_RF[0],RF_color.predict_proba([color_des_valid[0]])[0]), 'Las probabilidades de color estan mal calculadas'
+assert np.mean(proba_color_valid_MLP[0]-MLP_color.predict_proba([color_des_valid[0]])[0])<0.01, 'Las probabilidades de color estan mal calculadas'
+
+# ----------------------------------------
+
+color_predict_RF='' #prediccion del modelo random forest de color
+color_predict_MLP='' #prediccion del modelo MLP de color 
+shape_predict_RF='' #prediccion del modelo random forest de forma
+shape_predict_MLP='' #prediccion del modelo MLP de forma 
+
+experto_MLP_predict='' #modelo experto de MLP unicamente
+experto_RF_predict='' #modelo experto de RF unicamente
+# YOUR CODE HERE (Daniela)
+# Predicciones normales de cada modelo
+color_predict_RF = RF_color.predict(color_des_valid)
+color_predict_MLP = MLP_color.predict(color_des_valid)
+shape_predict_RF = RF_shape.predict(shape_des_valid)
+shape_predict_MLP = MLP_shape.predict(shape_des_valid)
+
+# Expertos: promedio de probabilidades de color y forma con el mismo clasificador
+experto_RF_predict = np.argmax((proba_color_valid_RF + proba_shape_valid_RF) / 2, axis=1)
+experto_MLP_predict = np.argmax((proba_color_valid_MLP + proba_shape_valid_MLP) / 2, axis=1)
+
+# ----------------------------------------
+
+color_p=proba_color_valid_RF[0]
+shape_p=proba_shape_valid_RF[0]
+
+assert np.isclose(((color_p+shape_p)/2)[experto_RF_predict[0]],np.max(((color_p+shape_p)/2))), 'La probabilidad maxima no fue seleccionada como la etiqueta de predicción final'
+
+color_p=proba_color_valid_MLP[0]
+shape_p=proba_shape_valid_MLP[0]
+
+assert np.isclose(((color_p+shape_p)/2)[experto_MLP_predict[0]],np.max(((color_p+shape_p)/2))), 'La probabilidad maxima no fue seleccionada como la etiqueta de predicción final'
+
+# ----------------------------------------
+
+f_color_RF=f1_score(valid_labels,color_predict_RF,average='macro')
+f_shape_RF=f1_score(valid_labels,shape_predict_RF,average='macro')
+f_experto_RF=f1_score(valid_labels,experto_RF_predict,average='macro')
+
+f_color_MLP=f1_score(valid_labels,color_predict_MLP,average='macro')
+f_shape_MLP=f1_score(valid_labels,shape_predict_MLP,average='macro')
+f_experto_MLP=f1_score(valid_labels,experto_MLP_predict,average='macro')
+
+print('Random Forest')
+print(f'color: {f_color_RF}')
+print(f'forma: {f_shape_RF}')
+print(f'final: {f_experto_RF}')
+print('MLP')
+print(f'color: {f_color_MLP}')
+print(f'forma: {f_shape_MLP}')
+print(f'final: {f_experto_MLP}')
+
+# ----------------------------------------
+
+f_experto_final='' #f medida de el modelo de expertos final
+# YOUR CODE HERE (Daniela)
+# Para cada descriptor se escoge el clasificador (RF o MLP) con mejor F1 en validación
+if f_color_RF >= f_color_MLP:
+    best_color_name, best_proba_color = "RF", proba_color_valid_RF
+else:
+    best_color_name, best_proba_color = "MLP", proba_color_valid_MLP
+
+if f_shape_RF >= f_shape_MLP:
+    best_shape_name, best_proba_shape = "RF", proba_shape_valid_RF
+else:
+    best_shape_name, best_proba_shape = "MLP", proba_shape_valid_MLP
+
+# Votación entre los dos mejores expertos
+experto_final_predict = np.argmax((best_proba_color + best_proba_shape) / 2, axis=1)
+f_experto_final = f1_score(valid_labels, experto_final_predict, average="macro")
+
+print(f"Experto de color: {best_color_name} | Experto de forma: {best_shape_name}")
+print(f"F1 del modelo de expertos final: {f_experto_final:.4f}")
+
+# ----------------------------------------
+
+assert f_experto_final > 0.55, 'Su f medida final no es la esperada'
+
+# ----------------------------------------
+
+#Experimentación
+
+# YOUR CODE HERE (Daniela)
+import pickle
+from scipy.io import loadmat
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import precision_recall_fscore_support
+
+# ---------- 1. Descriptor de textura (textones, como en la entrega 2) ----------
+filterbank = loadmat("filterbank.mat")["filterbank"].astype(np.float32)  # 18 filtros de 49x49
+n_textones = 25
+
+def filter_map(Im_gray):
+    """Respuesta de cada píxel a los 18 filtros (cv2.filter2D es mucho más rápido que correlate2d)."""
+    Im_gray = Im_gray.astype(np.float32)
+    # BORDER_CONSTANT rellena con ceros, igual que correlate2d en modo "same"
+    return np.stack([cv2.filter2D(Im_gray, -1, filterbank[:, :, k], borderType=cv2.BORDER_CONSTANT)
+                     for k in range(filterbank.shape[2])], axis=-1)
+
+# Diccionario de textones con 25 imágenes de entrenamiento (5 por clase, semilla del grupo)
+random.seed(group)
+dict_paths = []
+for idx in dict_labels.values():
+    class_paths = [p for p, l in zip(train_paths, train_labels) if l == idx]
+    dict_paths += random.sample(class_paths, 5)
+pixels = np.concatenate([filter_map(processing(cv2.imread(p), img_size, "gray")).reshape(-1, 18) for p in dict_paths])
+kmeans_tex = KMeans(n_clusters=n_textones, random_state=0, n_init=1).fit(pixels)
+
+def texture_descriptor(Im):
+    """Histograma normalizado de textones de la imagen."""
+    textons = kmeans_tex.predict(filter_map(processing(Im, img_size, "gray")).reshape(-1, 18))
+    h = np.bincount(textons, minlength=n_textones).astype(float)
+    return h / h.sum()
+
+texture_des_train = np.array([texture_descriptor(cv2.imread(p)) for p in tqdm(train_paths, desc="Textura train")])
+texture_des_valid = np.array([texture_descriptor(cv2.imread(p)) for p in tqdm(valid_paths, desc="Textura valid")])
+
+# ---------- 2. Novedad: descriptor multimodal con bloques balanceados ----------
+# Cada bloque se estandariza y se divide por sqrt(dimensión), así color (630), forma (1764)
+# y textura (25) pesan lo mismo en la distancia del kernel, sin importar su longitud.
+blocks_train = {"color": color_des_train, "forma": shape_des_train, "textura": texture_des_train}
+blocks_valid = {"color": color_des_valid, "forma": shape_des_valid, "textura": texture_des_valid}
+scalers = {name: StandardScaler().fit(X) for name, X in blocks_train.items()}
+
+def combine(blocks, names):
+    """Concatena los bloques pedidos, estandarizados y balanceados."""
+    return np.hstack([scalers[n].transform(blocks[n]) / np.sqrt(blocks[n].shape[1]) for n in names])
+
+def evaluate(model, Xt, Xv):
+    """Entrena y devuelve precisión, cobertura y F1 macro en validación."""
+    model.fit(Xt, train_labels)
+    P, R, F, _ = precision_recall_fscore_support(valid_labels, model.predict(Xv), average="macro", zero_division=0)
+    return P, R, F
+
+# ---------- 3. Combinaciones de descriptores con el clasificador del baseline ----------
+combos = [["color"], ["color", "forma"], ["color", "textura"], ["forma", "textura"], ["color", "forma", "textura"]]
+print("Combinaciones con SVM RBF, C = 10")
+print(f"{'Descriptor':<25} {'Dim':>5} {'Prec.':>7} {'Cob.':>7} {'F1':>7}")
+best_combo, best_f = None, 0
+for names in combos:
+    Xt, Xv = combine(blocks_train, names), combine(blocks_valid, names)
+    P, R, F = evaluate(SVC(kernel="rbf", C=10), Xt, Xv)
+    print(f"{' + '.join(names):<25} {Xt.shape[1]:>5} {P:>7.4f} {R:>7.4f} {F:>7.4f}")
+    if F > best_f:
+        best_combo, best_f = names, F
+print(f"Mejor combinación: {' + '.join(best_combo)} (F1 = {best_f:.4f})")
+
+# ---------- 4. Clasificadores e hiperparámetros sobre la mejor combinación ----------
+X_train_final = combine(blocks_train, best_combo)
+X_valid_final = combine(blocks_valid, best_combo)
+candidatos = {
+    "SVM RBF C=1":            SVC(kernel="rbf", C=1),
+    "SVM RBF C=10":           SVC(kernel="rbf", C=10),
+    "SVM RBF C=10 balanced":  SVC(kernel="rbf", C=10, class_weight="balanced"),
+    "SVM RBF C=30 balanced":  SVC(kernel="rbf", C=30, class_weight="balanced"),
+    "SVM lineal C=0.1":       SVC(kernel="linear", C=0.1, class_weight="balanced"),
+    "RF 300 árboles":         RandomForestClassifier(n_estimators=300, class_weight="balanced", random_state=0, n_jobs=-1),
+    "RF 500 árboles, prof 20": RandomForestClassifier(n_estimators=500, max_depth=20, class_weight="balanced", random_state=0, n_jobs=-1),
+    "MLP (256) alpha=1e-4":   MLPClassifier(hidden_layer_sizes=(256,), max_iter=300, early_stopping=True, random_state=0),
+    "MLP (256) alpha=0.1":    MLPClassifier(hidden_layer_sizes=(256,), alpha=0.1, max_iter=300, early_stopping=True, random_state=0),
+}
+print(f"\n{'Clasificador':<25} {'Prec.':>7} {'Cob.':>7} {'F1':>7}")
+best_name, best_f = None, 0
+for name, model in candidatos.items():
+    P, R, F = evaluate(model, X_train_final, X_valid_final)
+    print(f"{name:<25} {P:>7.4f} {R:>7.4f} {F:>7.4f}")
+    if F > best_f:
+        best_name, best_f = name, F
+
+# ---------- 5. Modelo final: el de mejor F1 en validación ----------
+final_model = candidatos[best_name]
+print(f"\nModelo final: {best_name} con {' + '.join(best_combo)} (F1 validación = {best_f:.4f})")
+
+# Se guarda todo lo necesario para la función Demo (clasificador, escaladores y KMeans de textones)
+with open("modelo_final.pkl", "wb") as f:
+    pickle.dump({"model": final_model, "scalers": scalers, "combo": best_combo, "kmeans_tex": kmeans_tex}, f)
+
+# ----------------------------------------
+
+#Validación
+predict_val='' #predicción de todo el dataset de validación
+# YOUR CODE HERE (Daniela)
+# Predicción del modelo final sobre todo el conjunto de validación
+predict_val = final_model.predict(X_valid_final)
+
+# Métricas globales y por clase
+P, R, F, _ = precision_recall_fscore_support(valid_labels, predict_val, average="macro", zero_division=0)
+print(f"Validación (macro) -> Precisión: {P:.4f} | Cobertura: {R:.4f} | F1: {F:.4f}")
+Pc, Rc, Fc, Nc = precision_recall_fscore_support(valid_labels, predict_val, zero_division=0)
+for name, idx in dict_labels.items():
+    print(f"{name:<26} P={Pc[idx]:.3f}  R={Rc[idx]:.3f}  F1={Fc[idx]:.3f}  n={Nc[idx]}")
+
+# ----------------------------------------
+
+def Demo(Im: np.ndarray) -> int:
+    """Función que predice la clase de una imagen
+
+    Args:
+        Im (numpy.ndarray): Imagen a predecir
+
+    Returns:
+        int: Clase predicha
+    """
+    # YOUR CODE HERE (Daniela)
+    # Se extraen los mismos descriptores que usa el modelo final
+    blocks = {"color": [color_descriptor(Im)],
+              "forma": [shape_descriptor(Im)],
+              "textura": [texture_descriptor(Im)]}
+    X = combine({n: np.array(b) for n, b in blocks.items()}, best_combo)
+    # Clase predicha como entero
+    predict = int(final_model.predict(X)[0])
+    return predict
+
+# ----------------------------------------
+
+test_predict=[]
+test_labels_list=[]
+pbar = tqdm(total = len(test_paths))
+for path, label in zip(test_paths, test_labels):
+    Im=cv2.imread(path)
+    test_labels_list.append(label)
+    test_predict.append(Demo(Im))
+    pbar.update(1)
+pbar.close()
+f_test=f1_score(test_labels_list,test_predict,average='macro')
+
+# ----------------------------------------
+
+assert (np.unique(test_predict) == np.arange(0, 5, 1)).all(), 'Las clases predichas no son las correctas'
+assert not np.isclose(np.std(test_predict), 0.0), 'Las predicciones no son las esperadas'
+print(f'Su metrica final en Test es: {f_test:.3f}')
+assert f_test>0.6, 'Su modelo no generaliza bien'
+
+# ----------------------------------------
+
+from utils import *
+converter("Entrega 4")
+
+# ----------------------------------------
+
